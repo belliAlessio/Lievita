@@ -1,21 +1,63 @@
-# Lievita
+<div align="center">
+  <img src="public/favicon.svg" alt="Lievita logo" width="88" />
+  <h1>Lievita 🍕</h1>
+  <p><strong>Pizza won't make itself. At least the math can.</strong></p>
+  <p>Calculate your dough, plan the rise, and know when to fire up the oven.</p>
+  <p><em>Pizza dough calculator &amp; indicative fermentation planner · Italiano / English</em></p>
+</div>
 
-A browser-only pizza dough calculator and indicative fermentation-to-bake planner. Italian and English; no backend, accounts, runtime fetching, or recipe presets.
+---
 
-Choose Neapolitan, tray or Roman round pizza; enter flour protein percentage, fresh or dry yeast, method, portions and the two planning dates. The app calculates baker's percentages, ingredient masses and automatic room/fridge phases. Tray dough uses a fixed 0.5 g/cm² load; the planner assumes 22°C room temperature and indicative home-oven baking durations. Dough-ball weight is limited to 5000 g and tray dimensions to 200 cm. One pizza/tray is baked at a time: the last one's fermentation must fit the flour limit. The indicative yeast estimate uses the midpoint between first and last fermentation; a large difference triggers a warning. Daylight-saving ambiguities require an explicit choice. Until a schedule is valid, ingredient amounts remain indicative but the yeast dose is withheld.
+## What's cooking? 🔥
 
-**Important:** hydration, yeast/time interpolation, protein bands, phase allocation and oven timings are *app estimates* informed by Italian references in `src/domain/model.ts` (consulted 1 October 2026) and phase-order references in `src/domain/schedule.ts` (consulted 3 October 2026). They have **not** been kitchen validated. A matching timeline does not guarantee fermentation or baking results. The fresh-to-dry 3:1 conversion is an AVPN reference, not a universal law or AVPN certification.
+Pick your pizza, tell Lievita **how many you're making**, **when you're starting**, and **when the first one should hit the table**. It takes care of the ingredient math and the game plan:
 
-## Development
+| 🍞 Dough | ⏱️ Schedule | 🧊 Fridge or room temperature |
+| --- | --- | --- |
+| Flour, water, salt, oil, and yeast quantities based on your choices. | A step-by-step timeline from kneading to the first pizza served, including serial baking. | Room and fridge phases allocated automatically for your chosen method. |
 
-Use Node.js 22 and npm:
+- **Three styles:** Neapolitan, tray pizza, and Roman round pizza.
+- **Your ingredients:** enter your flour's protein percentage and choose fresh or instant dry yeast.
+- **Your trays:** rectangular or round; dough weight depends on their surface area.
+- **No clock gymnastics:** the plan accounts for shaping, preheating, and baking one pizza at a time. If the timing doesn't work, you'll know.
+- **IT / EN:** switch languages in the app. Valid inputs are saved in your browser, no account required.
+
+> 💡 These are **indicative estimates**, not a foolproof recipe. Your flour, actual room temperature, and oven get the final say.
+
+## Get your hands floury 🧑‍🍳
+
+You'll need **Node.js 22** and **npm**:
 
 ```sh
 npm ci
 npm run dev
+```
+
+Open the URL printed by Vite. Before serving, run the checks:
+
+```sh
 npm run typecheck
 npm test
 npm run build
 ```
 
-The static build deploys to GitHub Pages. For a project subpath, use `BASE_PATH=/repo-name/ npm run build` and `BASE_PATH=/repo-name/ npm run preview`; open `http://localhost:4173/repo-name/`. Vite defaults to base `./`. See [AGENTS.md](AGENTS.md) for architecture and validation conventions.
+This is a **static app** built with React, TypeScript, and Vite. It runs in your browser: no backend, logins, or recipes fetched at runtime. Tests use Vitest. See [AGENTS.md](AGENTS.md) for the architecture and development conventions.
+
+## Shipping it 📦
+
+The workflow in `.github/workflows/deploy.yml` checks and builds on `main`, then deploys to **GitHub Pages** (once Pages is configured to use GitHub Actions). To preview a build served from a subpath like `/Lievita/`:
+
+```sh
+BASE_PATH=/Lievita/ npm run build
+BASE_PATH=/Lievita/ npm run preview
+```
+
+Open `http://localhost:4173/Lievita/`. Without `BASE_PATH`, Vite defaults to `./`.
+
+## A quick reality check ⚖️
+
+Hydration, protein bands, yeast dosage, fermentation phases, and baking times are **indicative app choices** informed by Italian references cited in `src/domain/model.ts` (consulted October 1, 2026) and `src/domain/schedule.ts` (consulted October 3, 2026). They **haven't been kitchen-validated** and cannot guarantee results. The 3:1 fresh-to-dry yeast conversion is an AVPN reference, not an AVPN certification of this app.
+
+For trays, Lievita uses a fixed dough load of **0.5 g/cm²**. Baking times are estimates for a home oven; the planner assumes **22 °C** room temperature and bakes one pizza or tray at a time. If the schedule isn't valid, dough quantities stay visible, but the yeast dose is withheld until you fix the timing.
+
+**In short:** use the numbers to get started, then listen to the dough. 👀
