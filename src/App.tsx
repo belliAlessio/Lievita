@@ -11,6 +11,7 @@ import { Segmented } from './components/Segmented';
 import { ResultCard } from './components/ResultCard';
 import { PizzaLogo } from './components/PizzaLogo';
 import { formatDoseGrams } from './i18n/format';
+import { LANGUAGE_STORAGE_KEY } from './i18n';
 
 const numericFields = ['protein', 'count', 'pieceWeight', 'length', 'width', 'diameter'] as const;
 type NumericField = typeof numericFields[number];
@@ -162,7 +163,11 @@ export default function App() {
     setShowVersionNotice(false);
     setForeignInvalid({});
     try { localStorage.removeItem(SAVED_STATE_STORAGE_KEY); } catch { /* optional */ }
-    setForm(defaultForm(locale)); setCleared(true);
+    setForm(defaultForm('it')); setCleared(true);
+    // The languageChanged listener saves its choice; remove it only after the reset completes.
+    void i18n.changeLanguage('it').then(() => {
+      try { localStorage.removeItem(LANGUAGE_STORAGE_KEY); } catch { /* Storage is optional. */ }
+    });
   };
 
   const liveMessage = cleared ? t('actions.clearFeedback') : Object.keys(summary).length

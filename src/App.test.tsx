@@ -106,8 +106,39 @@ describe('pizza calculator', () => {
     expect(localStorage.getItem('ricetta-pi-saved-state')).toBe(stale);
     await user.click(screen.getByRole('button', { name: 'Cancella dati salvati' }));
     await waitFor(() => expect(localStorage.getItem('ricetta-pi-saved-state')).toBeNull());
+    await waitFor(() => expect(localStorage.getItem('ricetta-pi-language')).toBeNull());
     expect(screen.queryByText(/I dati salvati appartengono a una versione precedente/)).not.toBeInTheDocument();
     expect(document.querySelector('[aria-live]')).toHaveTextContent(/Dati salvati cancellati/);
+  });
+  it('clears the saved form and language and restores defaults on reload', async () => {
+    const user = userEvent.setup(); const view = render(<App />);
+    await user.selectOptions(screen.getByLabelText('Lingua'), 'en');
+    const count = screen.getByLabelText('Number of pizzas');
+    await user.clear(count); await user.type(count, '3');
+    expect(localStorage.getItem('ricetta-pi-saved-state')).not.toBeNull();
+    expect(localStorage.getItem('ricetta-pi-language')).toBe('en');
+
+    await user.click(screen.getByRole('button', { name: 'Clear saved data' }));
+    await waitFor(() => expect(screen.getByLabelText('Lingua')).toHaveValue('it'));
+    expect(screen.getByLabelText('Numero di pizze')).toHaveValue('4');
+    expect(localStorage.getItem('ricetta-pi-saved-state')).toBeNull();
+    expect(localStorage.getItem('ricetta-pi-language')).toBeNull();
+
+    view.unmount();
+    render(<App />);
+    expect(screen.getByLabelText('Numero di pizze')).toHaveValue('4');
+    expect(JSON.parse(localStorage.getItem('ricetta-pi-saved-state')!).state.count).toBe('4');
+    expect(localStorage.getItem('ricetta-pi-language')).toBeNull();
+  });
+  it('keeps both saved values when clearing is cancelled', async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.selectOptions(screen.getByLabelText('Lingua'), 'en');
+    const saved = localStorage.getItem('ricetta-pi-saved-state');
+    vi.mocked(window.confirm).mockReturnValueOnce(false);
+    await user.click(screen.getByRole('button', { name: 'Clear saved data' }));
+    expect(localStorage.getItem('ricetta-pi-saved-state')).toBe(saved);
+    expect(localStorage.getItem('ricetta-pi-language')).toBe('en');
+    expect(screen.getByLabelText('Language')).toHaveValue('en');
   });
   it('does not overwrite an old schema during StrictMode double mount', () => {
     const stale = JSON.stringify({ schemaVersion: 2, state: {} });
