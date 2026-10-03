@@ -1,51 +1,59 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { doughMassForTray } from './domain/area';
 import { calculateDough } from './domain/dough';
 import { computeRecipe, maxFermentationHours, proteinBand, PROTEIN_MAX, PROTEIN_MIN, TRAY_LOAD, type Style } from './domain/model';
 import { parseLocalDateTime, planSchedule } from './domain/schedule';
-import { formForPersistence, isFormState, MAX_PIECE_WEIGHT, MAX_TRAY_DIMENSION, normalizeNumericInputLocale, parseFormNumber, type ForeignInvalid, type FormState, type Locale } from './state/form';
-import { encodeSavedState, inspectSavedState, SAVED_STATE_STORAGE_KEY } from './state/persistence';
+import { MAX_PIECE_WEIGHT, MAX_TRAY_DIMENSION, normalizeNumericInputLocale, parseFormNumber, type ForeignInvalid, type FormState, type Locale } from './state/form';
 import { NumberField } from './components/NumberField';
 import { Segmented } from './components/Segmented';
 import { ResultCard } from './components/ResultCard';
 import { PizzaLogo } from './components/PizzaLogo';
 import { formatDoseGrams } from './i18n/format';
-import { LANGUAGE_STORAGE_KEY } from './i18n';
 
 const numericFields = ['protein', 'count', 'pieceWeight', 'length', 'width', 'diameter'] as const;
 type NumericField = typeof numericFields[number];
-const localInput = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-const defaultForm = (locale: Locale): FormState => {
-  const start = new Date(Math.ceil(Date.now() / (15 * 60_000)) * (15 * 60_000));
-  return { style: 'napoletana', protein: locale === 'it' ? '12,5' : '12.5', yeast: 'fresh', method: 'hand', count: '4', pieceWeight: '250', shape: 'rectangle', length: '30', width: '40', diameter: '30', start: localInput(start), service: localInput(new Date(start.getTime() + 10 * 3_600_000)), program: 'room' };
-};
+const defaultForm = (locale: Locale): FormState => ({ style: 'napoletana', protein: locale === 'it' ? '12,5' : '12.5', yeast: 'fresh', method: 'hand', count: '4', pieceWeight: '250', shape: 'rectangle', length: '30', width: '40', diameter: '30', start: '', service: '', program: 'room' });
 const convertForm = (form: FormState, from: Locale, to: Locale): FormState => ({ ...form, ...Object.fromEntries(numericFields.map((key) => [key, normalizeNumericInputLocale(form[key], from, to)])) });
 
 export default function App() {
   const { t, i18n } = useTranslation();
   const locale: Locale = i18n.resolvedLanguage?.startsWith('en') ? 'en' : 'it';
-  const [restored] = useState(() => {
-    try { return inspectSavedState(typeof localStorage === 'undefined' ? null : localStorage.getItem(SAVED_STATE_STORAGE_KEY), isFormState); }
-    catch { return { value: null, reason: 'corrupt' as const }; }
-  });
-  const [form, setForm] = useState<FormState>(() => restored.value ? convertForm(restored.value, 'it', locale) : defaultForm(locale));
+  const [form, setForm] = useState<FormState>(() => defaultForm(locale));
   // Text invalid in its source language must not become valid simply because a
   // different locale interprets the same punctuation differently.
   const [foreignInvalid, setForeignInvalid] = useState<ForeignInvalid>({});
   const [cleared, setCleared] = useState(false);
-  const [showVersionNotice, setShowVersionNotice] = useState(restored.reason === 'version');
-  // StrictMode runs mount effects twice; a durable gate must not overwrite old records or re-save cleared data.
-  const persistReady = useRef(restored.reason !== 'version');
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const languagePicker = useRef<HTMLDivElement>(null);
+  const languageTrigger = useRef<HTMLButtonElement>(null);
+  const focusLastLanguage = useRef(false);
+
+  useEffect(() => {
+    if (!languageOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!languagePicker.current?.contains(event.target as Node)) setLanguageOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    const options = languagePicker.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]');
+    (focusLastLanguage.current ? options?.[options.length - 1] : languagePicker.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]'))?.focus();
+    focusLastLanguage.current = false;
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [languageOpen]);
+
+  useEffect(() => {
+    try {
+      localStorage.removeItem('ricetta-pi-saved-state');
+      localStorage.removeItem('ricetta-pi-language');
+    } catch { /* Storage may be unavailable. */ }
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = locale;
     document.title = t('app.documentTitle');
   }, [locale, t]);
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
-    persistReady.current = true;
     setCleared(false);
-    setShowVersionNotice(false);
     if (numericFields.some((field) => field === key)) setForeignInvalid((current) => {
       const updated = { ...current };
       delete updated[key as NumericField];
@@ -54,9 +62,7 @@ export default function App() {
     setForm((current) => ({ ...current, [key]: value, ...(key === 'start' ? { startChoice: undefined } : key === 'service' ? { serviceChoice: undefined } : {}) }));
   };
   const changeStyle = (style: Style) => {
-    persistReady.current = true;
     setCleared(false);
-    setShowVersionNotice(false);
     if (style !== 'teglia') setForeignInvalid((current) => {
       const updated = { ...current };
       delete updated.pieceWeight;
@@ -66,8 +72,7 @@ export default function App() {
   };
   const changeLanguage = (next: Locale) => {
     if (next === locale) return;
-    persistReady.current = true;
-    setShowVersionNotice(false);
+    setCleared(false);
     const invalid = { ...foreignInvalid };
     for (const field of numericFields) {
       if (invalid[field]) continue;
@@ -77,6 +82,20 @@ export default function App() {
     setForeignInvalid(invalid);
     setForm((current) => convertForm(current, locale, next));
     void i18n.changeLanguage(next);
+  };
+  const onLanguageKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setLanguageOpen(false);
+      languageTrigger.current?.focus();
+    } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      const options = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'));
+      const current = options.indexOf(document.activeElement as HTMLButtonElement);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1
+        : (current + (event.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length;
+      options[next]?.focus();
+      event.preventDefault();
+    }
   };
 
   const derived = useMemo(() => {
@@ -109,9 +128,11 @@ export default function App() {
     }
     const start = parseLocalDateTime(form.start);
     const service = parseLocalDateTime(form.service);
-    for (const [field, parsed, choice] of [['start', start, form.startChoice], ['service', service, form.serviceChoice]] as const) {
-      if (parsed.kind === 'invalid' || parsed.kind === 'nonexistent') planningErrors[field] = t(`errors.${parsed.code}`);
-      if (parsed.kind === 'ambiguous' && !choice) planningErrors[field] = t('errors.ambiguous_local_time');
+    if (form.start || form.service) {
+      for (const [field, parsed, choice] of [['start', start, form.startChoice], ['service', service, form.serviceChoice]] as const) {
+        if (parsed.kind === 'invalid' || parsed.kind === 'nonexistent') planningErrors[field] = t(`errors.${parsed.code}`);
+        if (parsed.kind === 'ambiguous' && !choice) planningErrors[field] = t('errors.ambiguous_local_time');
+      }
     }
     const choose = (value: typeof start, choice?: 'first' | 'second') => value.kind === 'valid' ? value.date : value.kind === 'ambiguous' && choice ? value.dates[choice === 'first' ? 0 : 1] : undefined;
     const begin = choose(start, form.startChoice);
@@ -139,14 +160,6 @@ export default function App() {
     return { errors, planningErrors, dough, recipe, plan, start, service };
   }, [form, foreignInvalid, locale, t]);
 
-  useEffect(() => {
-    if (!persistReady.current || Object.keys(derived.errors).length || Object.keys(derived.planningErrors).length) return;
-    const canonical = formForPersistence(form, locale, foreignInvalid);
-    if (!isFormState(canonical)) return;
-    try { localStorage.setItem(SAVED_STATE_STORAGE_KEY, encodeSavedState(canonical)); }
-    catch { /* Storage is optional. Keep the last valid record on invalid edits. */ }
-  }, [form, foreignInvalid, locale, derived]);
-
   const field = (key: typeof numericFields[number], label: string, integer = false) => <NumberField id={key} label={label} value={form[key]} onChange={(value) => set(key, value)} error={derived.errors[key]} integer={integer} />;
   const dateField = (key: 'start' | 'service') => {
     const parsed = derived[key];
@@ -157,31 +170,38 @@ export default function App() {
     </div>;
   };
   const summary = { ...derived.errors, ...derived.planningErrors };
-  const clearSaved = () => {
-    if (!window.confirm(t('actions.confirmClearSaved'))) return;
-    persistReady.current = false;
-    setShowVersionNotice(false);
+  const resetForm = () => {
+    if (!window.confirm(t('actions.confirmReset'))) return;
+    setLanguageOpen(false);
     setForeignInvalid({});
-    try { localStorage.removeItem(SAVED_STATE_STORAGE_KEY); } catch { /* optional */ }
     setForm(defaultForm('it')); setCleared(true);
-    // The languageChanged listener saves its choice; remove it only after the reset completes.
-    void i18n.changeLanguage('it').then(() => {
-      try { localStorage.removeItem(LANGUAGE_STORAGE_KEY); } catch { /* Storage is optional. */ }
-    });
+    void i18n.changeLanguage('it');
   };
 
-  const liveMessage = cleared ? t('actions.clearFeedback') : Object.keys(summary).length
+  const liveMessage = cleared ? t('actions.resetFeedback') : Object.keys(summary).length
     ? t('ui.errorsCount', { count: Object.keys(summary).length })
-    : derived.dough ? t('ui.liveResult', { mass: formatDoseGrams(derived.dough.total, 1, locale, t('units.grams')), status: derived.plan ? t(`result.status.${derived.plan.status}`) : t('labels.noTimeline') }) : '';
+    : derived.dough ? t('ui.liveResult', { mass: formatDoseGrams(derived.dough.total, 1, locale, t('units.grams')), status: derived.plan ? t(`result.status.${derived.plan.status}`) : t(form.start || form.service ? 'labels.noTimeline' : 'labels.timelinePrompt') }) : '';
 
-  return <div className="page-shell"><header className="site-header"><div className="brand"><PizzaLogo /><div><p className="eyebrow">{t('app.eyebrow')}</p><h1>{t('app.title')}<span className="brand-period">.</span></h1><p className="subtitle">{t('app.subtitle')}</p></div></div><div className="language-picker"><label htmlFor="language">{t('app.language')}</label><select id="language" value={locale} onChange={(event) => changeLanguage(event.target.value as Locale)}><option value="it">{t('app.languageItalian')}</option><option value="en">{t('app.languageEnglish')}</option></select></div></header>
-    <main>{showVersionNotice && <p className="notice">{t('restoreWarnings.version')}</p>}
-      {Object.keys(summary).length > 0 && <div className="error-summary"><strong>{t('ui.inputErrors')}</strong><ul>{Object.entries(summary).map(([key, message]) => <li key={key}><a href={`#${key}`}>{message} — {t(key === 'count' ? form.style === 'teglia' ? 'labels.countTrays' : 'labels.countRound' : `labels.${key}`)}</a></li>)}</ul></div>}
+  return <div className="page-shell"><header className="site-header"><div className="brand"><PizzaLogo /><div><p className="eyebrow">{t('app.eyebrow')}</p><h1>{t('app.title')}<span className="brand-period">.</span></h1><p className="subtitle">{t('app.subtitle')}</p></div></div><div className="language-picker" ref={languagePicker} onKeyDown={onLanguageKeyDown} onBlur={(event) => {
+    if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) setLanguageOpen(false);
+  }}>
+    <button ref={languageTrigger} type="button" className="language-trigger" aria-label={`${t('app.language')}: ${t(locale === 'it' ? 'app.languageItalian' : 'app.languageEnglish')} (${locale.toUpperCase()})`} aria-haspopup="menu" aria-expanded={languageOpen} aria-controls={languageOpen ? 'language-menu' : undefined} onClick={() => { focusLastLanguage.current = false; setLanguageOpen((open) => !open); }} onKeyDown={(event) => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault(); event.stopPropagation();
+        if (languageOpen) languagePicker.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')[event.key === 'ArrowUp' ? 1 : 0]?.focus();
+        else { focusLastLanguage.current = event.key === 'ArrowUp'; setLanguageOpen(true); }
+      }
+    }}><span aria-hidden="true" className="language-globe">◎</span>{locale.toUpperCase()}<span aria-hidden="true" className="language-chevron" /></button>
+    {languageOpen && <div id="language-menu" className="language-menu" role="menu" aria-label={t('app.language')}>
+      {(['it', 'en'] as const).map((value) => <button key={value} type="button" role="menuitemradio" tabIndex={-1} aria-checked={locale === value} className="language-option" onClick={() => { changeLanguage(value); setLanguageOpen(false); languageTrigger.current?.focus(); }}>{t(value === 'it' ? 'app.languageItalian' : 'app.languageEnglish')}<span aria-hidden="true">{locale === value ? '✓' : ''}</span></button>)}
+    </div>}
+  </div></header>
+    <main>{Object.keys(summary).length > 0 && <div className="error-summary"><strong>{t('ui.inputErrors')}</strong><ul>{Object.entries(summary).map(([key, message]) => <li key={key}><a href={`#${key}`}>{message} — {t(key === 'count' ? form.style === 'teglia' ? 'labels.countTrays' : 'labels.countRound' : `labels.${key}`)}</a></li>)}</ul></div>}
       <div className="workspace"><div className="step-stack">
         <section className="step-card"><div className="step-heading"><span className="step-number">01</span><div><h2>{t('steps.style')}</h2><p>{t('steps.styleHint')}</p></div></div><Segmented name="style" label={t('labels.style')} value={form.style} options={(['napoletana', 'teglia', 'romana'] as Style[]).map((value) => ({ value, label: t(`styles.${value}`) }))} onChange={changeStyle} /></section>
         <section className="step-card"><div className="step-heading"><span className="step-number">02</span><div><h2>{t('steps.flour')}</h2><p>{t('steps.flourHint')}</p></div></div><div className="step-fields">{field('protein', t('labels.protein'))}<Segmented name="yeast" label={t('labels.yeast')} value={form.yeast} options={[{ value: 'fresh', label: t('labels.fresh') }, { value: 'dry', label: t('labels.dry') }]} onChange={(value) => set('yeast', value)} /><Segmented name="method" label={t('labels.method')} value={form.method} options={[{ value: 'hand', label: t('labels.hand') }, { value: 'mixer', label: t('labels.mixer') }]} onChange={(value) => set('method', value)} /></div></section>
         <section className="step-card"><div className="step-heading"><span className="step-number">03</span><div><h2>{t('steps.quantity')}</h2><p>{t('steps.quantityHint')}</p></div></div><div className="step-fields">{field('count', t(form.style === 'teglia' ? 'labels.countTrays' : 'labels.countRound'), true)}{form.style !== 'teglia' ? field('pieceWeight', t('labels.pieceWeight')) : <><Segmented name="shape" label={t('labels.shape')} value={form.shape} options={[{ value: 'rectangle', label: t('labels.rectangle') }, { value: 'circle', label: t('labels.circle') }]} onChange={(value) => set('shape', value)} />{form.shape === 'rectangle' ? <div className="dimension-fields">{field('length', t('labels.length'))}{field('width', t('labels.width'))}</div> : field('diameter', t('labels.diameter'))}</>}</div></section>
         <section className="step-card"><div className="step-heading"><span className="step-number">04</span><div><h2>{t('steps.planning')}</h2><p>{t('steps.planningHint')}</p></div></div><div className="step-fields"><div className="dimension-fields">{dateField('start')}{dateField('service')}</div><Segmented name="program" label={t('labels.program')} value={form.program} options={[{ value: 'room', label: t('labels.room') }, { value: 'fridge', label: t('labels.fridge') }]} onChange={(value) => set('program', value)} /></div></section>
-      </div><ResultCard dough={derived.dough} recipe={derived.recipe} plan={derived.plan} locale={locale} form={form} /></div>
-    </main><footer><p>{t('app.footer')}</p><button type="button" className="clear-button" onClick={clearSaved}>{t('actions.clearSaved')}</button><div className="sr-only" aria-live="polite">{liveMessage}</div></footer></div>;
+      </div><ResultCard dough={derived.dough} recipe={derived.recipe} plan={derived.plan} locale={locale} form={form} planningStarted={Boolean(form.start || form.service)} /></div>
+    </main><footer><p>{t('app.footer')}</p><button type="button" className="clear-button" onClick={resetForm}>{t('actions.resetForm')}</button><div className={cleared ? 'reset-feedback' : 'sr-only'} aria-live="polite">{liveMessage}</div></footer></div>;
 }

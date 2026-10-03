@@ -28,10 +28,10 @@ Before considering work done, `npm run typecheck`, `npm test`, and `npm run buil
 ## Architecture
 
 - `src/domain/`: pure calculation, validation, protein-driven indicative recipe model, tray area, and automatic schedule logic. No React or localized user-facing text; return stable codes and parameters for the UI to translate.
-- `src/state/`: form parsing/derivation and schema-versioned persistence.
+- `src/state/`: form parsing and locale-aware numeric input. Form and language are session-only; refreshing resets both.
 - `src/components/` and `src/App.tsx`: UI components and application composition.
 - `src/i18n/`: i18next setup, formatting, and `locales/it.json` / `locales/en.json`.
-- Domain tests are in `src/domain/domain.test.ts`; i18n catalog tests are in `src/domain/i18n.test.ts`; state tests live beside modules in `src/state/*.test.ts`; UI interaction tests are in `src/App.test.tsx`.
+- Domain tests are in `src/domain/domain.test.ts`; i18n catalog tests are in `src/domain/i18n.test.ts`; parsing tests are in `src/state/form.test.ts`; UI interaction tests are in `src/App.test.tsx`.
 
 ## Localization and input
 
@@ -76,11 +76,11 @@ Before considering work done, `npm run typecheck`, `npm test`, and `npm run buil
 
 - No recipe or flour presets remain. Do not copy recipe text or attribute the app's percentages, yeast curve, or oven timing to a single source. Keep source URLs and consultation date in model comments. Cooking durations are app choices; actual ovens differ.
 
-### Validation and saved state
+### Validation and reset
 
 - Empty, negative, non-finite, fractional-count, and out-of-range count inputs (valid counts are 1–200) must produce field errors, never plausible numeric results. Dough-ball weight is limited to 5000 g, tray dimensions to 200 cm. Keep dough results visible when only the planner has errors, but withhold the yeast dose until its schedule is valid.
-- Validate `localStorage` data against schema version 3. Persist only forms with valid fields, retaining the last valid record when editing an invalid field. Incompatible versions are ignored with a notice; corrupt or invalid records are silently ignored. UI language is stored separately under `ricetta-pi-language`.
-- A language switch must never make source-locale-invalid text valid: retain its field error until the user edits that field. Sanitize invalid hidden-only fields to defaults when saving, without replacing invalid visible fields.
+- Do not persist form or language. On refresh, start in Italian with default amounts, empty planning dates, and no timeline or initial date errors; remove old app-specific `localStorage` records. The reset button restores this state without reloading.
+- A language switch must never make source-locale-invalid text valid: retain its field error until the user edits that field.
 
 ## Accessibility and UI
 

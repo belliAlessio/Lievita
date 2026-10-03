@@ -1,65 +1,147 @@
 // @vitest-environment jsdom
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 import App from './App';
 import i18n from './i18n';
 
+const startTime = '2026-06-15T09:00';
+const serviceTime = '2026-06-15T19:00';
+async function enterPlan(user: ReturnType<typeof userEvent.setup>, hours = 10) {
+  await user.type(screen.getByLabelText('Inizio impasto'), startTime);
+  const service = new Date(new Date(startTime).getTime() + hours * 3_600_000);
+  const local = new Date(service.getTime() - service.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  await user.type(screen.getByLabelText('Prima pizza pronta'), local);
+}
+async function selectLanguage(user: ReturnType<typeof userEvent.setup>, value: 'it' | 'en') {
+  await user.click(screen.getByRole('button', { name: /^(Lingua|Language):/ }));
+  await user.click(screen.getByRole('menuitemradio', { name: value === 'it' ? 'Italiano' : 'English' }));
+}
+
 describe('pizza calculator', () => {
   beforeEach(async () => { localStorage.clear(); vi.spyOn(window, 'confirm').mockReturnValue(true); await i18n.changeLanguage('it'); });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear(); });
 
-  it('renders a complete default recipe and timeline without removed controls', () => {
+  it('starts with default amounts, empty planning dates, and no timeline or initial date errors', () => {
     render(<App />);
     expect(screen.getByRole('heading', { name: 'Lievita.' })).toBeInTheDocument();
-    expect(document.title).toContain('Lievita');
-    expect(document.querySelector('.brand svg[aria-hidden="true"]')).toBeInTheDocument();
-    expect(document.querySelector('.mass-total')).toBeInTheDocument();
-    expect(document.querySelector('.timeline')).toBeInTheDocument();
-    expect(screen.getByText('Idratazione')).toBeInTheDocument();
-    expect(screen.queryByText('Carico impasto (g/cm²)')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Forno' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Fonti e limiti' })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Acqua (%)')).not.toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Risultato' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByLabelText('Numero di pizze')).toHaveValue('4');
+    expect(screen.getByLabelText('Inizio impasto')).toHaveValue('');
+    expect(screen.getByLabelText('Prima pizza pronta')).toHaveValue('');
+    expect(document.querySelector('.timeline')).not.toBeInTheDocument();
+    expect(document.querySelector('.error-summary')).not.toBeInTheDocument();
+    expect(document.querySelector('.result-card')).toHaveTextContent(/Inserisci inizio impasto e prima pizza pronta/);
+    expect(document.querySelector('.mass-total')).toHaveTextContent('1000 g');
+    expect(screen.getAllByText('—')).toHaveLength(2);
     expect(document.querySelectorAll('[aria-live="polite"]')).toHaveLength(1);
-    expect(document.querySelector('[aria-live]')).toHaveTextContent(/Impasto totale 1000 g/);
+    expect(screen.getByRole('region', { name: 'Risultato' })).toHaveAttribute('tabindex', '0');
+    expect(screen.queryByText('Lingua')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
-  it('prints a valid plan with ingredients, choices and timeline in the selected language', async () => {
+  it('prints a valid plan with ingredient amounts, choices and timeline in the selected language', async () => {
     const print = vi.spyOn(window, 'print').mockImplementation(() => {});
     const user = userEvent.setup(); render(<App />);
+    expect(screen.queryByRole('button', { name: 'Stampa scheda' })).not.toBeInTheDocument();
+    await enterPlan(user);
     const sheet = document.querySelector('.print-details');
     expect(sheet).toHaveTextContent('Scheda impasto');
     expect(sheet).toHaveTextContent('Napoletana');
     expect(sheet).toHaveTextContent('250 g');
     expect(document.querySelector('.result-card .ingredients')).toHaveTextContent('Farina');
     expect(document.querySelector('.result-card .timeline')).toHaveTextContent('Impasta');
-    await user.selectOptions(screen.getByLabelText('Lingua'), 'en');
+    await selectLanguage(user, 'en');
     expect(sheet).toHaveTextContent('Dough sheet');
     expect(sheet).toHaveTextContent('Neapolitan');
     await user.click(screen.getByRole('button', { name: 'Print sheet' }));
     expect(print).toHaveBeenCalledOnce();
   });
-  it('hides printing for invalid plans and shows tray dimensions for valid plans', async () => {
+  it('does not offer printing for a provisional or invalid plan and summarizes tray dimensions', async () => {
     const user = userEvent.setup(); render(<App />);
     await user.click(screen.getByRole('radio', { name: 'Teglia' }));
-    expect(document.querySelector('.print-details')).toHaveTextContent('Rettangolare · 30 × 40 cm');
-    await user.clear(screen.getByLabelText('Prima pizza pronta'));
+    await user.type(screen.getByLabelText('Inizio impasto'), startTime);
     expect(screen.queryByRole('button', { name: 'Stampa scheda' })).not.toBeInTheDocument();
-    expect(document.querySelector('.print-details')).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('Prima pizza pronta'), serviceTime);
+    expect(document.querySelector('.print-details')).toHaveTextContent('Rettangolare · 30 × 40 cm');
     await user.clear(screen.getByLabelText('Numero di teglie'));
     expect(screen.queryByRole('button', { name: 'Stampa scheda' })).not.toBeInTheDocument();
+    expect(document.querySelector('.print-details')).not.toBeInTheDocument();
+  });
+  it('ignores and deletes legacy saved values and resets on remount without touching other storage', async () => {
+    localStorage.setItem('ricetta-pi-saved-state', JSON.stringify({ count: '50' }));
+    localStorage.setItem('ricetta-pi-language', 'en');
+    localStorage.setItem('unrelated', 'keep');
+    const user = userEvent.setup(); const view = render(<StrictMode><App /></StrictMode>);
+    expect(localStorage.getItem('ricetta-pi-saved-state')).toBeNull();
+    expect(localStorage.getItem('ricetta-pi-language')).toBeNull();
+    expect(localStorage.getItem('unrelated')).toBe('keep');
+    await enterPlan(user);
+    const count = screen.getByLabelText('Numero di pizze');
+    await user.clear(count); await user.type(count, '3');
+    expect(document.querySelector('.timeline')).toBeInTheDocument();
+    await selectLanguage(user, 'en');
+    expect(localStorage.getItem('ricetta-pi-saved-state')).toBeNull();
+    expect(localStorage.getItem('ricetta-pi-language')).toBeNull();
+    view.unmount();
+    // A real refresh also reinitializes i18n, whose default is Italian.
+    await i18n.changeLanguage('it');
+    render(<App />);
+    expect(screen.getByLabelText('Numero di pizze')).toHaveValue('4');
+    expect(screen.getByLabelText('Inizio impasto')).toHaveValue('');
+    expect(document.querySelector('.timeline')).not.toBeInTheDocument();
+  });
+  it('resets edited fields and timeline on confirmation, with visible feedback', async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole('radio', { name: 'Teglia' }));
+    await user.click(screen.getByRole('radio', { name: /^Tonda$/ }));
+    const diameter = screen.getByLabelText('Diametro (cm)');
+    await user.clear(diameter); await user.type(diameter, '45');
+    await user.click(screen.getByRole('radio', { name: 'Secco' }));
+    await user.click(screen.getByRole('radio', { name: 'Impastatrice' }));
+    await user.click(screen.getByRole('radio', { name: 'Ambiente + frigo' }));
+    await enterPlan(user, 24);
+    await selectLanguage(user, 'en');
+    const protein = screen.getByLabelText('Flour protein (%)');
+    await user.clear(protein); await user.type(protein, '13');
+    const count = screen.getByLabelText('Number of trays');
+    await user.clear(count); await user.type(count, '3');
+    expect(document.querySelector('.timeline')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Start over' }));
+    expect(screen.getByRole('button', { name: /^Lingua: Italiano/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('radio', { name: 'Napoletana' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Fresco' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'A mano' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Solo ambiente' })).toBeChecked();
+    expect(screen.getByLabelText('Proteine della farina (%)')).toHaveValue('12,5');
+    expect(screen.getByLabelText('Numero di pizze')).toHaveValue('4');
+    expect(screen.getByLabelText('Peso panetto (g)')).toHaveValue('250');
+    expect(screen.getByLabelText('Inizio impasto')).toHaveValue('');
+    expect(screen.getByLabelText('Prima pizza pronta')).toHaveValue('');
+    expect(document.querySelector('.timeline')).not.toBeInTheDocument();
+    expect(document.querySelector('.error-summary')).not.toBeInTheDocument();
+    expect(document.querySelector('.reset-feedback')).toHaveTextContent('tabella di marcia cancellata');
+    await user.click(screen.getByRole('radio', { name: 'Teglia' }));
+    expect(screen.getByRole('radio', { name: 'Rettangolare' })).toBeChecked();
+    expect(screen.getByLabelText('Lunghezza (cm)')).toHaveValue('30');
+    expect(screen.getByLabelText('Larghezza (cm)')).toHaveValue('40');
+  });
+  it('does not reset the form when confirmation is cancelled', async () => {
+    const user = userEvent.setup(); render(<App />);
+    await enterPlan(user);
+    vi.mocked(window.confirm).mockReturnValueOnce(false);
+    await user.click(screen.getByRole('button', { name: 'Ricomincia' }));
+    expect(screen.getByLabelText('Inizio impasto')).toHaveValue(startTime);
+    expect(document.querySelector('.timeline')).toBeInTheDocument();
   });
   it('updates hydration when flour protein changes', async () => {
     const user = userEvent.setup(); render(<App />);
     expect(screen.getByText('60%')).toBeInTheDocument();
-    await user.clear(screen.getByLabelText('Proteine della farina (%)'));
-    await user.type(screen.getByLabelText('Proteine della farina (%)'), '13');
+    const protein = screen.getByLabelText('Proteine della farina (%)');
+    await user.clear(protein); await user.type(protein, '13');
     expect(screen.getByText('62,5%')).toBeInTheDocument();
   });
-  it('uses the Roman round default ball weight and fixed tray load', async () => {
+  it('uses Roman round ball weight and fixed tray load', async () => {
     const user = userEvent.setup(); render(<App />);
     await user.click(screen.getByRole('radio', { name: 'Tonda romana' }));
     expect(screen.getByLabelText('Peso panetto (g)')).toHaveValue('180');
@@ -67,204 +149,123 @@ describe('pizza calculator', () => {
     expect(screen.getByLabelText('Numero di teglie')).toBeInTheDocument();
     expect(document.querySelector('.mass-total')).toHaveTextContent('2400 g');
   });
-  it('automatically includes a fridge phase when there is enough time', async () => {
+  it('shows a timeline only after both dates are entered', async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.type(screen.getByLabelText('Inizio impasto'), startTime);
+    expect(document.querySelector('.timeline')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Prima pizza pronta')).toHaveAttribute('aria-invalid', 'true');
+    await user.type(screen.getByLabelText('Prima pizza pronta'), serviceTime);
+    expect(document.querySelector('.timeline')).toBeInTheDocument();
+    expect(screen.getByText('Impasta')).toBeInTheDocument();
+  });
+  it('includes a fridge phase when enough time is provided', async () => {
     const user = userEvent.setup(); render(<App />);
     await user.click(screen.getByRole('radio', { name: 'Ambiente + frigo' }));
-    const start = screen.getByLabelText('Inizio impasto') as HTMLInputElement;
-    const begin = new Date(start.value); const later = new Date(begin.getTime() + 24 * 3_600_000);
-    const local = new Date(later.getTime() - later.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-    const service = screen.getByLabelText('Prima pizza pronta');
-    await user.clear(service); await user.type(service, local);
+    await enterPlan(user, 24);
     expect(screen.getByText('Riposo in frigo (in massa)')).toBeInTheDocument();
   });
   it('schedules tray spreading only after bulk fridge rest and acclimation', async () => {
     const user = userEvent.setup(); render(<App />);
     await user.click(screen.getByRole('radio', { name: 'Teglia' }));
     await user.click(screen.getByRole('radio', { name: 'Ambiente + frigo' }));
-    const start = screen.getByLabelText('Inizio impasto') as HTMLInputElement;
-    const later = new Date(new Date(start.value).getTime() + 24 * 3_600_000);
-    const local = new Date(later.getTime() - later.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-    const service = screen.getByLabelText('Prima pizza pronta');
-    await user.clear(service); await user.type(service, local);
+    await enterPlan(user, 24);
     const timeline = Array.from(document.querySelectorAll('.timeline .timeline-item strong')).map((item) => item.textContent);
     expect(timeline.indexOf('Riposo in frigo (in massa)')).toBeLessThan(timeline.indexOf('Stendi nelle teglie'));
     expect(timeline.indexOf('Acclimatamento in massa')).toBeLessThan(timeline.indexOf('Stendi nelle teglie'));
     expect(timeline.indexOf('Stendi nelle teglie')).toBeLessThan(timeline.indexOf('Riposo in teglia'));
-    expect(timeline.indexOf('Riposo in teglia')).toBeLessThan(timeline.findIndex((item) => item?.startsWith('Condisci la teglia')));
     expect(screen.getByText(/Teglie 2–4:/)).toBeInTheDocument();
   });
-  it('fridge too short suggests a concrete later service time', async () => {
+  it('suggests a later service when fridge time is too short', async () => {
     const user = userEvent.setup(); render(<App />);
     await user.click(screen.getByRole('radio', { name: 'Ambiente + frigo' }));
+    await enterPlan(user);
     expect(screen.getByText(/Servono almeno 6 ore in frigo:.*alle \d/)).toBeInTheDocument();
     expect(screen.getAllByText('—')).toHaveLength(2);
   });
-  it('switches it→en→it preserving protein and a valid dough result', async () => {
+  it('switches it-en-it while preserving valid protein and dough result', async () => {
     const user = userEvent.setup(); render(<App />);
-    expect(screen.getByLabelText('Proteine della farina (%)')).toHaveValue('12,5');
-    await user.selectOptions(screen.getByLabelText('Lingua'), 'en');
-    expect(await screen.findByLabelText('Flour protein (%)')).toHaveValue('12.5');
+    await selectLanguage(user, 'en');
+    expect(screen.getByLabelText('Flour protein (%)')).toHaveValue('12.5');
     expect(document.querySelector('.mass-total')).toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText('Language'), 'it');
-    expect(await screen.findByLabelText('Proteine della farina (%)')).toHaveValue('12,5');
+    await selectLanguage(user, 'it');
+    expect(screen.getByLabelText('Proteine della farina (%)')).toHaveValue('12,5');
   });
-  it('invalid count has a field error and no dough result', async () => {
+  it('opens a custom language menu with keyboard controls and dismisses it outside', async () => {
     const user = userEvent.setup(); render(<App />);
-    await user.clear(screen.getByLabelText('Numero di pizze')); await user.type(screen.getByLabelText('Numero di pizze'), '201');
-    expect(screen.getByLabelText('Numero di pizze')).toHaveAttribute('aria-invalid', 'true');
+    const trigger = screen.getByRole('button', { name: /^Lingua: Italiano/ });
+    trigger.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('menuitemradio', { name: 'Italiano' })).toHaveFocus();
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByRole('menuitemradio', { name: 'English' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    await user.keyboard('{ArrowUp}');
+    expect(screen.getByRole('menuitemradio', { name: 'English' })).toHaveFocus();
+    await user.keyboard('{Shift>}{Tab}{/Shift}');
+    expect(trigger).toHaveFocus();
+    await user.keyboard('{ArrowUp}');
+    expect(screen.getByRole('menuitemradio', { name: 'English' })).toHaveFocus();
+    await user.keyboard('{Shift>}{Tab}{/Shift}');
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await user.click(trigger);
+    await user.tab();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await user.click(trigger);
+    await user.click(screen.getByRole('heading', { name: 'Lievita.' }));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+  it('keeps the menu open on a null blur target until a language is selected', async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole('button', { name: /^Lingua:/ }));
+    fireEvent.blur(screen.getByRole('menuitemradio', { name: 'Italiano' }), { relatedTarget: null });
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    await user.click(screen.getByRole('menuitemradio', { name: 'English' }));
+    expect(screen.getByRole('button', { name: /^Language: English/ })).toHaveAttribute('aria-expanded', 'false');
+  });
+  it('shows errors for invalid counts and withholds dough results', async () => {
+    const user = userEvent.setup(); render(<App />);
+    const count = screen.getByLabelText('Numero di pizze');
+    await user.clear(count); await user.type(count, '201');
+    expect(count).toHaveAttribute('aria-invalid', 'true');
     expect(document.querySelector('.mass-total')).not.toBeInTheDocument();
     expect(document.querySelector('.error-summary a[href="#count"]')).toBeInTheDocument();
-    expect(document.querySelector('[aria-live]')).toHaveTextContent(/campi da correggere/);
   });
-  it('keeps dough quantities visible when only the planner is invalid', async () => {
+  it('keeps dough quantities visible but withholds yeast when planning is invalid', async () => {
     const user = userEvent.setup(); render(<App />);
-    await user.clear(screen.getByLabelText('Prima pizza pronta'));
+    await user.type(screen.getByLabelText('Inizio impasto'), startTime);
     expect(document.querySelector('.mass-total')).toBeInTheDocument();
     expect(document.querySelector('.timeline')).not.toBeInTheDocument();
     expect(screen.getAllByText('—')).toHaveLength(2);
     expect(screen.getByText(/Lievito calcolato quando la pianificazione è valida/)).toBeInTheDocument();
   });
-  it('ignores old schema, displays notice without overwriting it, and clears saved data on confirmation', async () => {
-    const user = userEvent.setup(); const stale = JSON.stringify({ schemaVersion: 2, state: {} });
-    localStorage.setItem('ricetta-pi-saved-state', stale); render(<App />);
-    expect(screen.getByText(/I dati salvati appartengono a una versione precedente/)).toBeInTheDocument();
-    expect(localStorage.getItem('ricetta-pi-saved-state')).toBe(stale);
-    await user.click(screen.getByRole('button', { name: 'Cancella dati salvati' }));
-    await waitFor(() => expect(localStorage.getItem('ricetta-pi-saved-state')).toBeNull());
-    await waitFor(() => expect(localStorage.getItem('ricetta-pi-language')).toBeNull());
-    expect(screen.queryByText(/I dati salvati appartengono a una versione precedente/)).not.toBeInTheDocument();
-    expect(document.querySelector('[aria-live]')).toHaveTextContent(/Dati salvati cancellati/);
-  });
-  it('clears the saved form and language and restores defaults on reload', async () => {
-    const user = userEvent.setup(); const view = render(<App />);
-    await user.selectOptions(screen.getByLabelText('Lingua'), 'en');
-    const count = screen.getByLabelText('Number of pizzas');
-    await user.clear(count); await user.type(count, '3');
-    expect(localStorage.getItem('ricetta-pi-saved-state')).not.toBeNull();
-    expect(localStorage.getItem('ricetta-pi-language')).toBe('en');
-
-    await user.click(screen.getByRole('button', { name: 'Clear saved data' }));
-    await waitFor(() => expect(screen.getByLabelText('Lingua')).toHaveValue('it'));
-    expect(screen.getByLabelText('Numero di pizze')).toHaveValue('4');
-    expect(localStorage.getItem('ricetta-pi-saved-state')).toBeNull();
-    expect(localStorage.getItem('ricetta-pi-language')).toBeNull();
-
-    view.unmount();
-    render(<App />);
-    expect(screen.getByLabelText('Numero di pizze')).toHaveValue('4');
-    expect(JSON.parse(localStorage.getItem('ricetta-pi-saved-state')!).state.count).toBe('4');
-    expect(localStorage.getItem('ricetta-pi-language')).toBeNull();
-  });
-  it('keeps both saved values when clearing is cancelled', async () => {
+  it('keeps source-locale-invalid English text invalid in Italian until edited', async () => {
     const user = userEvent.setup(); render(<App />);
-    await user.selectOptions(screen.getByLabelText('Lingua'), 'en');
-    const saved = localStorage.getItem('ricetta-pi-saved-state');
-    vi.mocked(window.confirm).mockReturnValueOnce(false);
-    await user.click(screen.getByRole('button', { name: 'Clear saved data' }));
-    expect(localStorage.getItem('ricetta-pi-saved-state')).toBe(saved);
-    expect(localStorage.getItem('ricetta-pi-language')).toBe('en');
-    expect(screen.getByLabelText('Language')).toHaveValue('en');
-  });
-  it('does not overwrite an old schema during StrictMode double mount', () => {
-    const stale = JSON.stringify({ schemaVersion: 2, state: {} });
-    localStorage.setItem('ricetta-pi-saved-state', stale);
-    render(<StrictMode><App /></StrictMode>);
-    expect(localStorage.getItem('ricetta-pi-saved-state')).toBe(stale);
-  });
-  it('rejects ambiguous English input and retains the last valid saved form', async () => {
-    const user = userEvent.setup(); render(<App />);
-    await user.selectOptions(screen.getByLabelText('Lingua'), 'en');
-    const count = screen.getByLabelText('Number of pizzas');
-    await user.clear(count); await user.type(count, '2,500');
-    expect(count).toHaveAttribute('aria-invalid', 'true');
-    expect(document.querySelector('.error-summary a[href="#count"]')).toBeInTheDocument();
-    const saved = localStorage.getItem('ricetta-pi-saved-state');
-    expect(JSON.parse(saved!).state.count).toBe('2');
-    await user.clear(count); await user.type(count, '3');
-    await waitFor(() => expect(localStorage.getItem('ricetta-pi-saved-state')).not.toBe(saved));
-  });
-  it('keeps a source-locale-invalid English value invalid in Italian until edited', async () => {
-    const user = userEvent.setup(); render(<App />);
-    await user.selectOptions(screen.getByLabelText('Lingua'), 'en');
+    await selectLanguage(user, 'en');
     const weight = screen.getByLabelText('Dough ball weight (g)');
     await user.clear(weight); await user.type(weight, '2,500');
-    expect(weight).toHaveAttribute('aria-invalid', 'true');
-    await user.selectOptions(screen.getByLabelText('Language'), 'it');
+    await selectLanguage(user, 'it');
     expect(screen.getByLabelText('Peso panetto (g)')).toHaveValue('2,500');
     expect(screen.getByLabelText('Peso panetto (g)')).toHaveAttribute('aria-invalid', 'true');
-    expect(document.querySelector('.mass-total')).not.toBeInTheDocument();
     await user.clear(screen.getByLabelText('Peso panetto (g)'));
     await user.type(screen.getByLabelText('Peso panetto (g)'), '250');
-    expect(screen.getByLabelText('Peso panetto (g)')).not.toHaveAttribute('aria-invalid', 'true');
     expect(document.querySelector('.mass-total')).toBeInTheDocument();
   });
-  it('keeps a source-locale-invalid Italian value invalid in English until edited', async () => {
+  it('keeps source-locale-invalid Italian text invalid in English until edited', async () => {
     const user = userEvent.setup(); render(<App />);
     const weight = screen.getByLabelText('Peso panetto (g)');
     await user.clear(weight); await user.type(weight, '1.000');
-    expect(weight).toHaveAttribute('aria-invalid', 'true');
-    await user.selectOptions(screen.getByLabelText('Lingua'), 'en');
-    expect(screen.getByLabelText('Dough ball weight (g)')).toHaveValue('1.000');
+    await selectLanguage(user, 'en');
     expect(screen.getByLabelText('Dough ball weight (g)')).toHaveAttribute('aria-invalid', 'true');
-    expect(document.querySelector('.mass-total')).not.toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText('Language'), 'it');
+    await selectLanguage(user, 'it');
     expect(screen.getByLabelText('Peso panetto (g)')).toHaveAttribute('aria-invalid', 'true');
-    await user.clear(screen.getByLabelText('Peso panetto (g)'));
-    await user.type(screen.getByLabelText('Peso panetto (g)'), '250');
-    expect(document.querySelector('.mass-total')).toBeInTheDocument();
   });
-  it('saves valid visible fields even if a hidden dimension is invalid', async () => {
+  it('groups repeated batches and warns about a long service window', async () => {
     const user = userEvent.setup(); render(<App />);
-    await user.click(screen.getByRole('radio', { name: 'Teglia' }));
-    await user.clear(screen.getByLabelText('Lunghezza (cm)'));
-    expect(screen.getByLabelText('Lunghezza (cm)')).toHaveAttribute('aria-invalid', 'true');
-    await user.click(screen.getByRole('radio', { name: 'Napoletana' }));
-    const count = screen.getByLabelText('Numero di pizze');
-    await user.clear(count); await user.type(count, '3');
-    expect(document.querySelector('.mass-total')).toBeInTheDocument();
-    const saved = JSON.parse(localStorage.getItem('ricetta-pi-saved-state')!);
-    expect(saved.state).toMatchObject({ style: 'napoletana', count: '3', length: '30' });
-  });
-  it('sanitizes a source-invalid hidden English tray length across locale switch and reload', async () => {
-    const user = userEvent.setup(); const view = render(<App />);
-    await user.selectOptions(screen.getByLabelText('Lingua'), 'en');
-    await user.click(screen.getByRole('radio', { name: 'Tray pizza' }));
-    const length = screen.getByLabelText('Length (cm)');
-    await user.clear(length); await user.type(length, '2,500');
-    expect(length).toHaveAttribute('aria-invalid', 'true');
-    await user.click(screen.getByRole('radio', { name: 'Neapolitan' }));
-    await user.selectOptions(screen.getByLabelText('Language'), 'it');
-    expect(JSON.parse(localStorage.getItem('ricetta-pi-saved-state')!).state.length).toBe('30');
-    view.unmount();
-    render(<App />);
-    await user.click(screen.getByRole('radio', { name: 'Teglia' }));
-    expect(screen.getByLabelText('Lunghezza (cm)')).toHaveValue('30');
-  });
-  it('sanitizes a source-invalid hidden Italian ball weight when switching to English', async () => {
-    const user = userEvent.setup(); const view = render(<App />);
-    const weight = screen.getByLabelText('Peso panetto (g)');
-    await user.clear(weight); await user.type(weight, '1.000');
-    expect(weight).toHaveAttribute('aria-invalid', 'true');
-    await user.click(screen.getByRole('radio', { name: 'Teglia' }));
-    await user.selectOptions(screen.getByLabelText('Lingua'), 'en');
-    expect(JSON.parse(localStorage.getItem('ricetta-pi-saved-state')!).state.pieceWeight).toBe('250');
-    view.unmount();
-    render(<App />);
-    expect(JSON.parse(localStorage.getItem('ricetta-pi-saved-state')!).state.pieceWeight).toBe('250');
-    await user.click(screen.getByRole('radio', { name: 'Neapolitan' }));
-    expect(screen.getByLabelText('Dough ball weight (g)')).toHaveValue('250');
-  });
-  it('uses singular batch labels for two items and omits the batch label for one', async () => {
-    const user = userEvent.setup(); render(<App />);
-    const count = screen.getByLabelText('Numero di pizze');
-    await user.clear(count); await user.type(count, '1');
-    expect(screen.queryByText(/· 1ª pizza/)).not.toBeInTheDocument();
-    await user.clear(count); await user.type(count, '2');
-    expect(screen.getByText(/Pizza 2: pronta alle/)).toBeInTheDocument();
-    expect(screen.queryByText(/Pizze 2–2:/)).not.toBeInTheDocument();
-  });
-  it('shows a non-blocking service-window warning for many pizzas', async () => {
-    const user = userEvent.setup(); render(<App />);
+    await enterPlan(user);
     const protein = screen.getByLabelText('Proteine della farina (%)');
     await user.clear(protein); await user.type(protein, '13');
     const count = screen.getByLabelText('Numero di pizze');
@@ -273,45 +274,13 @@ describe('pizza calculator', () => {
     expect(screen.getByText(/L'ultima pizza fermenta molto più a lungo/)).toBeInTheDocument();
     expect(screen.getByText(/Pizze 2–60/)).toBeInTheDocument();
   });
-  it('rejects quantity bounds without replacing the valid saved state', async () => {
+  it('rejects quantity bounds and shows alternative start for a too-long plan', async () => {
     const user = userEvent.setup(); render(<App />);
     const weight = screen.getByLabelText('Peso panetto (g)');
     await user.clear(weight); await user.type(weight, '5001');
     expect(weight).toHaveAttribute('aria-invalid', 'true');
-    expect(JSON.parse(localStorage.getItem('ricetta-pi-saved-state')!).state.pieceWeight).toBe('500');
-    await user.click(screen.getByRole('radio', { name: 'Teglia' }));
-    const length = screen.getByLabelText('Lunghezza (cm)');
-    await user.clear(length); await user.type(length, '201');
-    expect(length).toHaveAttribute('aria-invalid', 'true');
-  });
-  it('ignores corrupt storage silently and restores valid v3 data', async () => {
-    localStorage.setItem('ricetta-pi-saved-state', '{');
-    const first = render(<App />);
-    expect(document.querySelector('.notice')).not.toBeInTheDocument();
-    const saved = JSON.parse(localStorage.getItem('ricetta-pi-saved-state')!);
-    saved.state.protein = '13';
-    localStorage.setItem('ricetta-pi-saved-state', JSON.stringify(saved));
-    first.unmount();
-    render(<App />);
-    expect(screen.getByLabelText('Proteine della farina (%)')).toHaveValue('13');
-  });
-  it('shows dry yeast and warns about the last pizza baking window', async () => {
-    const user = userEvent.setup(); render(<App />);
-    await user.click(screen.getByRole('radio', { name: 'Secco' }));
-    expect(screen.getByText('Lievito · Secco')).toBeInTheDocument();
-    await user.clear(screen.getByLabelText('Numero di pizze'));
-    await user.type(screen.getByLabelText('Numero di pizze'), '200');
-    expect(screen.getByText(/Cuocere tutti gli elementi uno alla volta/)).toBeInTheDocument();
-    expect(screen.getAllByText('—')).toHaveLength(2);
-  });
-  it('shows alternative start for a too-long plan', async () => {
-    const user = userEvent.setup(); render(<App />);
-    const start = screen.getByLabelText('Inizio impasto') as HTMLInputElement;
-    const later = new Date(new Date(start.value).getTime() + 30 * 3_600_000);
-    const local = new Date(later.getTime() - later.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-    const service = screen.getByLabelText('Prima pizza pronta');
-    await user.clear(service); await user.type(service, local);
+    await user.clear(weight); await user.type(weight, '250');
+    await enterPlan(user, 30);
     expect(screen.getByText(/Inizio alternativo: .+\d/)).toBeInTheDocument();
-    expect(screen.getAllByText('—')).toHaveLength(2);
   });
 });

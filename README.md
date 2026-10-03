@@ -20,7 +20,7 @@ Pick your pizza, tell Lievita **how many you're making**, **when you're starting
 - **Your ingredients:** enter your flour's protein percentage and choose fresh or instant dry yeast.
 - **Your trays:** rectangular or round; dough weight depends on their surface area.
 - **No clock gymnastics:** the plan accounts for shaping, preheating, and baking one pizza at a time. If the timing doesn't work, you'll know.
-- **IT / EN:** switch languages in the app. Valid inputs are saved in your browser, no account required.
+- **IT / EN:** switch languages in the app. No account or saved data: refreshing starts a fresh plan with empty dates.
 
 > 💡 These are **indicative estimates**, not a foolproof recipe. Your flour, actual room temperature, and oven get the final say.
 

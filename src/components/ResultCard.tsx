@@ -7,7 +7,7 @@ import type { FormState, Locale } from '../state/form';
 import { Timeline } from './Timeline';
 
 type Recipe = ReturnType<typeof computeRecipe>;
-export function ResultCard({ dough, recipe, plan, locale, form }: { dough?: DoughMasses; recipe?: Recipe; plan?: Schedule; locale: Locale; form: FormState }) {
+export function ResultCard({ dough, recipe, plan, locale, form, planningStarted }: { dough?: DoughMasses; recipe?: Recipe; plan?: Schedule; locale: Locale; form: FormState; planningStarted: boolean }) {
   const { t } = useTranslation();
   const grams = (value: number, resolution = 1) => formatDoseGrams(value, resolution, locale, t('units.grams'));
   const date = (value: Date) => new Intl.DateTimeFormat(locale === 'it' ? 'it-IT' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(value);
@@ -44,7 +44,7 @@ export function ResultCard({ dough, recipe, plan, locale, form }: { dough?: Doug
       {plan.warnings.map((code) => <p className="plan-warning" key={code}>{t(`scheduleWarnings.${code}`)}</p>)}
     </div>}
     {dough && plan?.status !== 'ok' && <p className="result-empty">{t('provisional')}</p>}
-    {!plan && <p className="result-empty">{t('labels.noTimeline')}</p>}
+    {!plan && <p className="result-empty">{t(planningStarted ? 'labels.noTimeline' : 'labels.timelinePrompt')}</p>}
     <p className="disclaimer">{t('result.disclaimer')}</p>
   </aside>;
 }
