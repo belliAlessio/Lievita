@@ -1,0 +1,28 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local tools and credentials
+.tokensave/
+.opencode/
+/GIT_PERSONALE_LOCALE.md
+.env
+.env.*
+!.env.example
+!.env.*.example
+.npmrc
+.netrc
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# Local caches, logs, and editor files
+coverage/
+.vite/
+*.log
+.DS_Store
+.idea/
+.vscode/

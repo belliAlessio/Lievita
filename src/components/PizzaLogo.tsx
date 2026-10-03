@@ -1,0 +1,16 @@
+/** Same artwork as public/favicon.svg, kept inline so the brand renders without a network request. */
+export function PizzaLogo() {
+  return <svg className="brand-icon" aria-hidden="true" focusable="false" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="32" cy="32" r="30" fill="#d89845" />
+    <circle cx="32" cy="32" r="27" fill="#efbf71" />
+    <circle cx="32" cy="32" r="23" fill="#c75136" />
+    <circle cx="32" cy="32" r="21" fill="#dc6241" />
+    <ellipse cx="19" cy="21" rx="6" ry="5" fill="#fff4df" />
+    <ellipse cx="44" cy="22" rx="5" ry="6" fill="#fff4df" />
+    <ellipse cx="24" cy="43" rx="6" ry="5" fill="#fff4df" />
+    <ellipse cx="45" cy="41" rx="6" ry="5" fill="#fff4df" />
+    <path d="M31 35c-1-9 5-14 12-12-1 8-4 12-12 12Z" fill="#418551" />
+    <path d="M31 35c-6-7-12-6-15-1 5 6 10 6 15 1Z" fill="#56a15c" />
+    <path d="m31 35 8-8m-8 8-11-2" fill="none" stroke="#2b6b43" strokeWidth="1.2" strokeLinecap="round" />
+  </svg>;
+}
