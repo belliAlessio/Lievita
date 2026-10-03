@@ -1,5 +1,6 @@
 {
   "provisional": "Lievito calcolato quando la pianificazione è valida. Le dosi degli altri ingredienti sono indicative.",
+  "print": { "action": "Stampa scheda", "title": "Scheda impasto" },
   "scheduleWarnings": { "long_service_window": "L'ultima pizza fermenta molto più a lungo della prima: valuta meno pizze o più di un forno." },
   "timelineLabels": { "firstPizza": "1ª pizza", "firstTray": "1ª teglia", "singlePizza": "Pizza 2: pronta alle {{time}} ({{minutes}} min dopo la prima)", "singleTray": "Teglia 2: pronta alle {{time}} ({{minutes}} min dopo la prima)" },
   "app": { "title": "Lievita", "documentTitle": "Lievita — pizza fatta con cura", "eyebrow": "IL TUO IMPASTO, SENZA COMPLICAZIONI", "subtitle": "Dalla farina alla prima fetta. Una guida semplice per dosi e tempi.", "language": "Lingua", "languageItalian": "Italiano", "languageEnglish": "English", "footer": "Stime indicative: osserva sempre l'impasto e adatta la cottura al tuo forno." },

@@ -27,6 +27,31 @@ describe('pizza calculator', () => {
     expect(document.querySelectorAll('[aria-live="polite"]')).toHaveLength(1);
     expect(document.querySelector('[aria-live]')).toHaveTextContent(/Impasto totale 1000 g/);
   });
+  it('prints a valid plan with ingredients, choices and timeline in the selected language', async () => {
+    const print = vi.spyOn(window, 'print').mockImplementation(() => {});
+    const user = userEvent.setup(); render(<App />);
+    const sheet = document.querySelector('.print-details');
+    expect(sheet).toHaveTextContent('Scheda impasto');
+    expect(sheet).toHaveTextContent('Napoletana');
+    expect(sheet).toHaveTextContent('250 g');
+    expect(document.querySelector('.result-card .ingredients')).toHaveTextContent('Farina');
+    expect(document.querySelector('.result-card .timeline')).toHaveTextContent('Impasta');
+    await user.selectOptions(screen.getByLabelText('Lingua'), 'en');
+    expect(sheet).toHaveTextContent('Dough sheet');
+    expect(sheet).toHaveTextContent('Neapolitan');
+    await user.click(screen.getByRole('button', { name: 'Print sheet' }));
+    expect(print).toHaveBeenCalledOnce();
+  });
+  it('hides printing for invalid plans and shows tray dimensions for valid plans', async () => {
+    const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getByRole('radio', { name: 'Teglia' }));
+    expect(document.querySelector('.print-details')).toHaveTextContent('Rettangolare · 30 × 40 cm');
+    await user.clear(screen.getByLabelText('Prima pizza pronta'));
+    expect(screen.queryByRole('button', { name: 'Stampa scheda' })).not.toBeInTheDocument();
+    expect(document.querySelector('.print-details')).not.toBeInTheDocument();
+    await user.clear(screen.getByLabelText('Numero di teglie'));
+    expect(screen.queryByRole('button', { name: 'Stampa scheda' })).not.toBeInTheDocument();
+  });
   it('updates hydration when flour protein changes', async () => {
     const user = userEvent.setup(); render(<App />);
     expect(screen.getByText('60%')).toBeInTheDocument();

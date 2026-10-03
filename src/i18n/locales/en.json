@@ -1,5 +1,6 @@
 {
   "provisional": "Yeast is calculated when the schedule is valid. Other ingredient amounts are indicative.",
+  "print": { "action": "Print sheet", "title": "Dough sheet" },
   "scheduleWarnings": { "long_service_window": "The last pizza ferments much longer than the first; consider fewer pizzas or more than one oven." },
   "timelineLabels": { "firstPizza": "Pizza 1", "firstTray": "Tray 1", "singlePizza": "Pizza 2: ready at {{time}} ({{minutes}} min after the first)", "singleTray": "Tray 2: ready at {{time}} ({{minutes}} min after the first)" },
   "app": { "title": "Lievita", "documentTitle": "Lievita — pizza made with care", "eyebrow": "YOUR DOUGH, MADE SIMPLE", "subtitle": "From flour to the first slice. A simple guide to amounts and timing.", "language": "Language", "languageItalian": "Italiano", "languageEnglish": "English", "footer": "Indicative estimates: always observe your dough and adapt baking to your oven." },
